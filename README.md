@@ -41,6 +41,15 @@
 ```sh
 QQ_BOT_APPID=10*******
 QQ_BOT_SECRET=oh******************************
+
+# log config
+BOT_LOG_DIR=log
+BOT_LOG_FILE=bot.log
+BOT_LOG_LEVEL=INFO
+MESSAGE_LOG_DIR=log
+MESSAGE_LOG_FILE=message.log
+MESSAGE_LOG_MAX_LENGTH=500
+
 QQ_BOT_AGENT=deepseek
 DEEPSEEK_API_KEY=sk-********************************
 DEEPSEEK_BASE_URL=https://api.deepseek.com
@@ -51,6 +60,8 @@ SJTU_BASE_URL=https://models.sjtu.edu.cn/api/v1
 SJTU_MODEL=deepseek-chat
 ```
 
+`BOT_LOG_DIR`、`BOT_LOG_FILE`、`MESSAGE_LOG_DIR` 和 `MESSAGE_LOG_FILE` 控制日志文件位置，默认写到 `log/bot.log` 和 `log/message.log`。
+`MESSAGE_LOG_MAX_LENGTH` 控制收发消息写入 `message.log` 时的最大长度。
 `QQ_BOT_AGENT` 是启动后的默认 agent，可选值包括 `builtin`、`deepseek` 和 `sjtu`。
 `deepseek` 需要配置 `DEEPSEEK_API_KEY`。`sjtu` 需要配置 `SJTU_API_KEY`，且 SJTU API 仅限校园网或 VPN 访问。对应的 `*_BASE_URL` 和 `*_MODEL` 可以按需调整。
 
