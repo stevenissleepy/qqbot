@@ -41,7 +41,6 @@ class QQBot(botpy.Client):
         )
         self._log_message_reply(
             conversation_id=conversation_id,
-            user_id=user_id,
             content=reply,
         )
         await message.reply(content=reply)
@@ -61,7 +60,6 @@ class QQBot(botpy.Client):
         )
         self._log_message_reply(
             conversation_id=conversation_id,
-            user_id=user_id,
             content=reply,
         )
         await message._api.post_group_message(
@@ -93,17 +91,14 @@ class QQBot(botpy.Client):
         return await agent.reply(content, context)
 
     def _log_message_received(self, *, conversation_id: str, user_id: str, content: str) -> None:
-        self._message_logger.info(
-            "message received: conversation=%s user=%s content=%s",
-            conversation_id,
-            user_id,
-            content,
+        self._message_logger.received(
+            conversation_id=conversation_id,
+            user_id=user_id,
+            content=content,
         )
 
-    def _log_message_reply(self, *, conversation_id: str, user_id: str, content: str) -> None:
-        self._message_logger.info(
-            "message reply: conversation=%s user=%s content=%s",
-            conversation_id,
-            user_id,
-            content,
+    def _log_message_reply(self, *, conversation_id: str, content: str) -> None:
+        self._message_logger.reply(
+            conversation_id=conversation_id,
+            content=content,
         )
