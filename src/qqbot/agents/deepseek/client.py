@@ -1,6 +1,6 @@
 from openai import AsyncOpenAI
 
-from qqbot.agents.deepseekv4.settings import DeepSeekSettings
+from qqbot.agents.deepseek.settings import DeepSeekSettings
 
 
 class DeepSeekClient:

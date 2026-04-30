@@ -1,10 +1,10 @@
 from qqbot.agents.base import AgentContext
-from qqbot.agents.deepseekv4.client import DeepSeekClient
-from qqbot.agents.deepseekv4.settings import DeepSeekSettings
+from qqbot.agents.deepseek.client import DeepSeekClient
+from qqbot.agents.deepseek.settings import DeepSeekSettings
 
 
-class DeepSeekV4Agent:
-    name = "deepseekv4"
+class DeepSeekAgent:
+    name = "deepseek"
     description = "使用 DeepSeek API 进行最简单的单轮聊天"
 
     async def reply(self, message: str, context: AgentContext) -> str:
