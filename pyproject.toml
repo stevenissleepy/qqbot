@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qqbot"
+version = "0.1.0"
+description = "A QQ bot with pluggable agents."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "openai",
+    "python-dotenv",
+    "qq-botpy",
+]
+
+[project.scripts]
+qqbot = "qqbot.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
