@@ -199,7 +199,7 @@ class NapCatBot:
             (
                 index
                 for index, part in enumerate(parts)
-                if part in {"/model", "/persona"}
+                if part in {"/help", "/model", "/persona"}
             ),
             None,
         )
@@ -208,11 +208,24 @@ class NapCatBot:
 
         command = parts[command_index]
         args = parts[command_index + 1 :]
+        if command == "/help":
+            return self._handle_help_command()
         if command == "/model":
             return self._handle_model_command(message, args)
         if command == "/persona":
             return self._handle_persona_command(message, args)
         return None
+
+    def _handle_help_command(self) -> str:
+        return (
+            "目前所有可用指令：\n"
+            "[/model]\n"
+            "/model list : 列出所有可用 model\n"
+            "/model {name} : 切换到 {name}\n\n"
+            "[/persona]\n"
+            "/persona list :  列出所有可用人格\n"
+            "/persona {name} : 切换到 {name}"
+        )
 
     def _handle_model_command(self, message: IncomingMessage, args: list[str]) -> str:
         if not args:

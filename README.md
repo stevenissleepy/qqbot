@@ -64,6 +64,7 @@ AGENT_CONTEXT_MESSAGES=20
 在私聊发送，或在群里 `@龟龟 /model sjtu`：
 
 ```text
+/help
 /model list
 /model sjtu
 /persona list
