@@ -1,30 +1,17 @@
-import re
-import json
 import asyncio
-import uuid
-import websockets
+import json
 from contextlib import suppress
 from typing import Any
-from dataclasses import dataclass
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+import websockets
+
 from qqbot.agent.turtle_agent import TurtleAgent
+from qqbot.bot.commands import CommandHandler
+from qqbot.bot.member_cache import GroupMemberCache
+from qqbot.bot.onebot import OneBotApi
+from qqbot.bot.parser import MessageParser
 from qqbot.utils.logger import BotLogger, MessageLogger
-
-_CQ_AT_RE = re.compile(r"\[CQ:at,qq=(?P<qq>[^,\]]+)[^\]]*\]")
-_CQ_CODE_RE = re.compile(r"\[CQ:[^\]]+\]")
-
-
-@dataclass(frozen=True)
-class IncomingMessage:
-    conversation_id: str
-    user_id: str
-    user_name: str
-    content: str
-    is_group: bool
-    mentioned_bot: bool
-    reply_action: str
-    reply_params: dict[str, Any]
 
 
 class NapCatBot:
@@ -37,11 +24,15 @@ class NapCatBot:
     ):
         self._ws_url = self._build_ws_url(ws_url, access_token)
         self._agent = agent
-        self._agent_name = agent.name
         self._bot_logger = BotLogger()
         self._message_logger = MessageLogger()
-        self._member_name_cache: dict[tuple[str, str], str] = {}
-        self._pending_actions: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        self._onebot = OneBotApi()
+        self._parser = MessageParser(agent_name=agent.name)
+        self._commands = CommandHandler(agent)
+        self._member_cache = GroupMemberCache(
+            onebot=self._onebot,
+            logger=self._bot_logger,
+        )
 
     def run(self) -> None:
         asyncio.run(self._run_forever())
@@ -62,9 +53,7 @@ class NapCatBot:
         async with websockets.connect(self._ws_url) as websocket:
             self._bot_logger.info("connected to NapCat WebSocket: %s", self._ws_url)
             event_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
-            receiver = asyncio.create_task(
-                self._receive_events(websocket, event_queue)
-            )
+            receiver = asyncio.create_task(self._receive_events(websocket, event_queue))
             try:
                 while True:
                     event = await event_queue.get()
@@ -86,11 +75,7 @@ class NapCatBot:
                 self._bot_logger.warning("received non-json event from NapCat")
                 continue
 
-            echo = event.get("echo")
-            if isinstance(echo, str) and echo in self._pending_actions:
-                future = self._pending_actions.pop(echo)
-                if not future.done():
-                    future.set_result(event)
+            if self._onebot.handle_response(event):
                 continue
 
             await event_queue.put(event)
@@ -105,12 +90,12 @@ class NapCatBot:
         await self._handle_event(websocket, event)
 
     async def _handle_event(self, websocket: Any, event: dict[str, Any]) -> None:
-        message = self._parse_message_event(event)
+        message = self._parser.parse(event)
         if message is None:
             return
 
         if message.is_group:
-            message = await self._hydrate_group_mentions(websocket, message)
+            message = await self._member_cache.hydrate_mentions(websocket, message)
 
         self._log_message_received(
             conversation_id=message.conversation_id,
@@ -128,20 +113,9 @@ class NapCatBot:
             )
             return
 
-        command_reply = self._handle_command(message)
+        command_reply = self._commands.handle(message)
         if command_reply is not None:
-            self._log_message_reply(
-                conversation_id=message.conversation_id,
-                content=command_reply,
-            )
-            await self._send_action(
-                websocket,
-                message.reply_action,
-                {
-                    **message.reply_params,
-                    "message": command_reply,
-                },
-            )
+            await self._reply(websocket, message, command_reply)
             return
 
         reply = await self._agent.observe_and_reply(
@@ -152,325 +126,27 @@ class NapCatBot:
             is_group=message.is_group,
             mentioned_bot=message.mentioned_bot,
         )
-        if reply is None:
-            return
+        if reply is not None:
+            await self._reply(websocket, message, reply)
 
+    def _should_reply(self, message: Any) -> bool:
+        if not message.is_group:
+            return True
+        return message.mentioned_bot or self._agent.name in message.content
+
+    async def _reply(self, websocket: Any, message: Any, content: str) -> None:
         self._log_message_reply(
             conversation_id=message.conversation_id,
-            content=reply,
+            content=content,
         )
-        await self._send_action(
+        await self._onebot.send_action(
             websocket,
             message.reply_action,
             {
                 **message.reply_params,
-                "message": reply,
+                "message": content,
             },
         )
-
-    def _parse_message_event(self, event: dict[str, Any]) -> IncomingMessage | None:
-        if event.get("post_type") != "message":
-            return None
-
-        message_type = event.get("message_type")
-        raw_content = self._read_message_content(event)
-        self_id = str(event.get("self_id", ""))
-
-        if message_type == "group":
-            mentioned_bot = self._mentions_bot(raw_content, self_id)
-            content = self._normalize_message_content(raw_content, self_id).strip()
-
-            group_id = str(event["group_id"])
-            user_id = str(event["user_id"])
-            user_name = self._read_sender_name(event, fallback=user_id)
-            return IncomingMessage(
-                conversation_id=f"group:{group_id}",
-                user_id=user_id,
-                user_name=user_name,
-                content=content,
-                is_group=True,
-                mentioned_bot=mentioned_bot,
-                reply_action="send_group_msg",
-                reply_params={"group_id": group_id},
-            )
-
-        if message_type == "private":
-            user_id = str(event["user_id"])
-            user_name = self._read_sender_name(event, fallback=user_id)
-            return IncomingMessage(
-                conversation_id=f"private:{user_id}",
-                user_id=user_id,
-                user_name=user_name,
-                content=self._normalize_message_content(raw_content, self_id).strip(),
-                is_group=False,
-                mentioned_bot=False,
-                reply_action="send_private_msg",
-                reply_params={"user_id": user_id},
-            )
-
-        return None
-
-    def _read_message_content(self, event: dict[str, Any]) -> str:
-        message = event.get("message")
-        if isinstance(message, list):
-            return "".join(
-                self._message_segment_to_text(segment) for segment in message
-            ).strip()
-
-        if isinstance(message, str):
-            return message.strip()
-
-        raw_message = event.get("raw_message")
-        if isinstance(raw_message, str):
-            return raw_message.strip()
-
-        return ""
-
-    def _mentions_bot(self, content: str, self_id: str) -> bool:
-        if not self_id:
-            return False
-        return any(
-            match.group("qq") == self_id for match in _CQ_AT_RE.finditer(content)
-        )
-
-    def _should_reply(self, message: IncomingMessage) -> bool:
-        if not message.is_group:
-            return True
-        return message.mentioned_bot or self._agent_name in message.content
-
-    def _handle_command(self, message: IncomingMessage) -> str | None:
-        parts = message.content.strip().split()
-        command_index = next(
-            (
-                index
-                for index, part in enumerate(parts)
-                if part in {"/help", "/model", "/persona"}
-            ),
-            None,
-        )
-        if command_index is None:
-            return None
-
-        command = parts[command_index]
-        args = parts[command_index + 1 :]
-        if command == "/help":
-            return self._handle_help_command()
-        if command == "/model":
-            return self._handle_model_command(message, args)
-        if command == "/persona":
-            return self._handle_persona_command(message, args)
-        return None
-
-    def _handle_help_command(self) -> str:
-        return (
-            "目前所有可用指令：\n"
-            "[/model]\n"
-            "/model list : 列出所有可用 model\n"
-            "/model {name} : 切换到 {name}\n\n"
-            "[/persona]\n"
-            "/persona list :  列出所有可用人格\n"
-            "/persona {name} : 切换到 {name}"
-        )
-
-    def _handle_model_command(self, message: IncomingMessage, args: list[str]) -> str:
-        if not args:
-            current = self._agent.get_model_name(message.conversation_id)
-            return f"当前模型：{current}\n{self._agent.describe_models()}"
-
-        if len(args) == 1 and args[0] == "list":
-            current = self._agent.get_model_name(message.conversation_id)
-            return f"当前模型：{current}\n{self._agent.describe_models()}"
-
-        if len(args) != 1:
-            return "用法：/model list 或 /model <name>"
-
-        model_name = args[0]
-        try:
-            self._agent.set_model(message.conversation_id, model_name)
-        except ValueError as exc:
-            return str(exc)
-        return f"已切换模型：{model_name}"
-
-    def _handle_persona_command(self, message: IncomingMessage, args: list[str]) -> str:
-        if not args:
-            current = self._agent.get_persona_name(message.conversation_id)
-            return f"当前 persona：{current}\n{self._agent.describe_personas()}"
-
-        if len(args) == 1 and args[0] == "list":
-            current = self._agent.get_persona_name(message.conversation_id)
-            return f"当前 persona：{current}\n{self._agent.describe_personas()}"
-
-        if len(args) != 1:
-            return "用法：/persona list 或 /persona <name>"
-
-        persona_name = args[0]
-        try:
-            self._agent.set_persona(message.conversation_id, persona_name)
-        except ValueError as exc:
-            return str(exc)
-        return f"已切换 persona：{persona_name}"
-
-    def _normalize_message_content(self, content: str, self_id: str) -> str:
-        def replace_at(match: re.Match[str]) -> str:
-            qq = match.group("qq")
-            if self_id and qq == self_id:
-                return f"@{self._agent_name}"
-            return f"@用户({qq})"
-
-        return _CQ_CODE_RE.sub("", _CQ_AT_RE.sub(replace_at, content))
-
-    async def _hydrate_group_mentions(
-        self,
-        websocket: Any,
-        message: IncomingMessage,
-    ) -> IncomingMessage:
-        group_id = str(message.reply_params.get("group_id", ""))
-        if not group_id:
-            return message
-
-        hydrated_content = message.content
-        for match in list(re.finditer(r"@用户\((?P<user_id>\d+)\)", message.content)):
-            user_id = match.group("user_id")
-            user_name = await self._get_group_member_name(
-                websocket,
-                group_id=group_id,
-                user_id=user_id,
-            )
-            if not user_name:
-                continue
-            hydrated_content = hydrated_content.replace(
-                f"@用户({user_id})",
-                f"@{user_name}({user_id})",
-            )
-
-        if hydrated_content == message.content:
-            return message
-        return IncomingMessage(
-            conversation_id=message.conversation_id,
-            user_id=message.user_id,
-            user_name=message.user_name,
-            content=hydrated_content,
-            is_group=message.is_group,
-            mentioned_bot=message.mentioned_bot,
-            reply_action=message.reply_action,
-            reply_params=message.reply_params,
-        )
-
-    async def _get_group_member_name(
-        self,
-        websocket: Any,
-        *,
-        group_id: str,
-        user_id: str,
-    ) -> str | None:
-        cache_key = (group_id, user_id)
-        if cache_key in self._member_name_cache:
-            return self._member_name_cache[cache_key]
-
-        try:
-            response = await self._call_action(
-                websocket,
-                "get_group_member_info",
-                {
-                    "group_id": group_id,
-                    "user_id": user_id,
-                    "no_cache": False,
-                },
-            )
-        except TimeoutError:
-            self._bot_logger.warning(
-                "get_group_member_info timeout: group=%s user=%s",
-                group_id,
-                user_id,
-            )
-            return None
-
-        if response.get("status") != "ok":
-            self._bot_logger.warning(
-                "get_group_member_info failed: group=%s user=%s response=%s",
-                group_id,
-                user_id,
-                response,
-            )
-            return None
-
-        data = response.get("data")
-        if not isinstance(data, dict):
-            return None
-        user_name = self._read_member_name(data)
-        if user_name is None:
-            return None
-        self._member_name_cache[cache_key] = user_name
-        return user_name
-
-    def _read_member_name(self, data: dict[str, Any]) -> str | None:
-        for key in ("card", "nickname"):
-            value = data.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        return None
-
-    def _message_segment_to_text(self, segment: dict[str, Any]) -> str:
-        segment_type = segment.get("type")
-        data = segment.get("data", {})
-        if segment_type == "text":
-            return str(data.get("text", ""))
-        if segment_type == "at":
-            qq = str(data.get("qq", ""))
-            return f"[CQ:at,qq={qq}]"
-        return ""
-
-    def _read_sender_name(self, event: dict[str, Any], *, fallback: str) -> str:
-        sender = event.get("sender")
-        if not isinstance(sender, dict):
-            return fallback
-
-        for key in ("card", "nickname"):
-            value = sender.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        return fallback
-
-    async def _send_action(
-        self,
-        websocket: Any,
-        action: str,
-        params: dict[str, Any],
-    ) -> None:
-        await websocket.send(
-            json.dumps(
-                {
-                    "action": action,
-                    "params": params,
-                },
-                ensure_ascii=False,
-            )
-        )
-
-    async def _call_action(
-        self,
-        websocket: Any,
-        action: str,
-        params: dict[str, Any],
-    ) -> dict[str, Any]:
-        echo = f"{action}:{uuid.uuid4()}"
-        loop = asyncio.get_running_loop()
-        future = loop.create_future()
-        self._pending_actions[echo] = future
-        await websocket.send(
-            json.dumps(
-                {
-                    "action": action,
-                    "params": params,
-                    "echo": echo,
-                },
-                ensure_ascii=False,
-            )
-        )
-        try:
-            return await asyncio.wait_for(future, timeout=5)
-        finally:
-            self._pending_actions.pop(echo, None)
 
     def _log_message_received(
         self, *, conversation_id: str, user_id: str, content: str
