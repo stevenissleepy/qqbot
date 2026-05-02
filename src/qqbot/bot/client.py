@@ -2,11 +2,11 @@ import re
 import json
 import asyncio
 import websockets
-from dataclasses import dataclass
 from typing import Any
+from dataclasses import dataclass
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from qqbot.agent import TurtleAgent
+from qqbot.agent.turtle_agent import TurtleAgent
 from qqbot.utils.logger import BotLogger, MessageLogger
 
 _CQ_AT_RE = re.compile(r"\[CQ:at,qq=(?P<qq>[^,\]]+)[^\]]*\]")
@@ -84,6 +84,22 @@ class NapCatBot:
                 content=message.content,
                 is_group=message.is_group,
                 mentioned_bot=message.mentioned_bot,
+            )
+            return
+
+        command_reply = self._handle_command(message)
+        if command_reply is not None:
+            self._log_message_reply(
+                conversation_id=message.conversation_id,
+                content=command_reply,
+            )
+            await self._send_action(
+                websocket,
+                message.reply_action,
+                {
+                    **message.reply_params,
+                    "message": command_reply,
+                },
             )
             return
 
@@ -176,6 +192,34 @@ class NapCatBot:
         if not message.is_group:
             return True
         return message.mentioned_bot or self._agent_name in message.content
+
+    def _handle_command(self, message: IncomingMessage) -> str | None:
+        parts = message.content.strip().split()
+        command_index = next(
+            (index for index, part in enumerate(parts) if part == "/model"),
+            None,
+        )
+        if command_index is None:
+            return None
+
+        args = parts[command_index + 1 :]
+        if not args:
+            current = self._agent.get_model_name(message.conversation_id)
+            return f"当前模型：{current}\n{self._agent.describe_models()}"
+
+        if len(args) == 1 and args[0] == "list":
+            current = self._agent.get_model_name(message.conversation_id)
+            return f"当前模型：{current}\n{self._agent.describe_models()}"
+
+        if len(args) != 1:
+            return "用法：/model list 或 /model <name>"
+
+        model_name = args[0]
+        try:
+            self._agent.set_model(message.conversation_id, model_name)
+        except ValueError as exc:
+            return str(exc)
+        return f"已切换模型：{model_name}"
 
     def _normalize_message_content(self, content: str, self_id: str) -> str:
         def replace_at(match: re.Match[str]) -> str:

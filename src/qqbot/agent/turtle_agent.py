@@ -1,18 +1,19 @@
-from openai import AsyncOpenAI
+from qqbot.agent.models import ModelClient, build_model_clients
 
 
 class TurtleAgent:
     def __init__(
         self,
         *,
-        base_url: str,
-        api_key: str,
-        model: str,
+        default_model: str,
         bot_name: str,
         context_messages: int,
     ):
-        self._client = AsyncOpenAI(base_url=base_url, api_key=api_key)
-        self._model = model
+        self._clients: dict[str, ModelClient] = build_model_clients()
+        if default_model not in self._clients:
+            raise ValueError(f"未知默认模型：{default_model}")
+        self._default_model = default_model
+        self._conversation_models: dict[str, str] = {}
         self._bot_name = bot_name
         self._context_messages = context_messages
         self._histories: dict[str, list[dict[str, str]]] = {}
@@ -40,15 +41,13 @@ class TurtleAgent:
             mentioned_bot=mentioned_bot,
         )
 
-        response = await self._client.chat.completions.create(
-            model=self._model,
+        model_name = self.get_model_name(conversation_id)
+        reply = await self._clients[model_name].chat(
             messages=[
                 {"role": "system", "content": self._build_system_prompt(is_group)},
                 *history,
             ],
         )
-        content = response.choices[0].message.content or ""
-        reply = content.strip()
         if reply:
             history.append({"role": "assistant", "content": reply})
             self._trim_history(history)
@@ -75,6 +74,22 @@ class TurtleAgent:
         history.append({"role": "user", "content": user_content})
         self._trim_history(history)
         return history
+
+    def describe_models(self) -> str:
+        current = self._default_model
+        names = ", ".join(self._clients)
+        return f"默认模型：{current}\n可用模型：{names}"
+
+    def get_model_name(self, conversation_id: str) -> str:
+        return self._conversation_models.get(
+            conversation_id,
+            self._default_model,
+        )
+
+    def set_model(self, conversation_id: str, name: str) -> None:
+        if name not in self._clients:
+            raise ValueError(f"未知模型：{name}")
+        self._conversation_models[conversation_id] = name
 
     def _build_system_prompt(self, is_group: bool) -> str:
         personality = (
