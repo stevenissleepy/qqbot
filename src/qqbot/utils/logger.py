@@ -4,8 +4,6 @@ import sys
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
-from botpy import logging as botpy_logging
-
 
 class BotLogger:
     _DEFAULT_LOG_DIR = "log"
@@ -16,20 +14,25 @@ class BotLogger:
         log_file = log_dir / os.getenv("BOT_LOG_FILE", self._DEFAULT_LOG_FILE)
         log_level = self._read_log_level()
 
-        botpy_logging.configure_logging(
-            level=log_level,
-            bot_log=True,
-            ext_handlers={
-                "handler": TimedRotatingFileHandler,
-                "level": py_logging.DEBUG,
-                "when": "D",
-                "backupCount": 7,
-                "encoding": "utf-8",
-                "filename": str(log_file),
-            },
-            force=True,
+        self._logger = py_logging.getLogger("qqbot")
+        self._logger.handlers.clear()
+        self._logger.setLevel(log_level)
+        self._logger.propagate = False
+
+        file_handler = TimedRotatingFileHandler(
+            log_file,
+            when="D",
+            backupCount=7,
+            encoding="utf-8",
         )
-        self._logger = botpy_logging.get_logger()
+        file_handler.setFormatter(
+            py_logging.Formatter("%(asctime)s\t%(levelname)s\t%(message)s")
+        )
+        self._logger.addHandler(file_handler)
+
+        stream_handler = py_logging.StreamHandler()
+        stream_handler.setFormatter(py_logging.Formatter("%(levelname)s\t%(message)s"))
+        self._logger.addHandler(stream_handler)
 
     def info(self, msg: object, *args: object, **kwargs: object) -> None:
         kwargs.setdefault("stacklevel", 2)

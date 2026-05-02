@@ -24,7 +24,7 @@
 │       │   └── registry.py   # Agent 注册表
 │       ├── bot/
 │       │   ├── agent_manager.py # 当前会话 agent 状态
-│       │   └── client.py        # botpy 事件适配
+│       │   └── client.py        # NapCat / OneBot v11 WebSocket 适配
 │       ├── commands/
 │       │   ├── base.py       # Command 协议和上下文
 │       │   ├── agent.py      # /agent 命令
@@ -39,8 +39,9 @@
 复制 `.env.example` 为 `.env`，并填写：
 
 ```sh
-QQ_BOT_APPID=10*******
-QQ_BOT_SECRET=oh******************************
+NAPCAT_WS_URL=ws://127.0.0.1:3001
+NAPCAT_ACCESS_TOKEN=
+NAPCAT_GROUP_REQUIRE_MENTION=true
 
 # log config
 BOT_LOG_DIR=log
@@ -60,6 +61,9 @@ SJTU_BASE_URL=https://models.sjtu.edu.cn/api/v1
 SJTU_MODEL=deepseek-chat
 ```
 
+`NAPCAT_WS_URL` 是 NapCat 的 OneBot v11 WebSocket 服务地址。
+如果 NapCat 配置了 access token，把同一个值填到 `NAPCAT_ACCESS_TOKEN`。
+`NAPCAT_GROUP_REQUIRE_MENTION=true` 时，群聊只回复 @ 机器人的消息；私聊总是回复。
 `BOT_LOG_DIR`、`BOT_LOG_FILE`、`MESSAGE_LOG_DIR` 和 `MESSAGE_LOG_FILE` 控制日志文件位置，默认写到 `log/bot.log` 和 `log/message.log`。
 `MESSAGE_LOG_MAX_LENGTH` 控制收发消息写入 `message.log` 时的最大长度。
 `QQ_BOT_AGENT` 是启动后的默认 agent，可选值包括 `builtin`、`deepseek` 和 `sjtu`。
@@ -80,7 +84,7 @@ python -m qqbot
 
 ## QQ 聊天命令
 
-在频道或群聊里 @ 机器人：
+在私聊中直接发送，或在群聊里 @ 机器人：
 
 ```text
 /agent list

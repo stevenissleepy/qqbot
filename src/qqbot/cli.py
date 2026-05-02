@@ -1,9 +1,7 @@
 from dotenv import load_dotenv
 
-import botpy
-
 from qqbot.agents import build_default_registry
-from qqbot.bot.client import QQBot
+from qqbot.bot.client import NapCatBot
 from qqbot.commands import AgentCommand, CommandRegistry, CommandRouter
 from qqbot.config import load_settings
 
@@ -18,14 +16,12 @@ def main() -> None:
     command_registry.register(AgentCommand())
     command_router = CommandRouter(command_registry)
 
-    intents = botpy.Intents(
-        public_guild_messages=True,
-        public_messages=True,
-    )
-    client = QQBot(
-        intents=intents,
+    client = NapCatBot(
+        ws_url=settings.napcat_ws_url,
+        access_token=settings.napcat_access_token,
+        group_require_mention=settings.group_require_mention,
         agent_registry=agent_registry,
         command_router=command_router,
         default_agent=settings.default_agent,
     )
-    client.run(appid=settings.appid, secret=settings.secret)
+    client.run()
