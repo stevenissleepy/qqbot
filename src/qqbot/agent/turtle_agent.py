@@ -6,9 +6,9 @@ class TurtleAgent:
     def __init__(
         self,
         *,
+        bot_name: str,
         default_model: str,
         default_persona: str,
-        bot_name: str,
         context_messages: int,
     ):
         self._clients: dict[str, ModelClient] = build_model_clients()
