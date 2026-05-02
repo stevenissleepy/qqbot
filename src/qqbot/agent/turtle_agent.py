@@ -26,6 +26,7 @@ class TurtleAgent:
         *,
         conversation_id: str,
         user_id: str,
+        user_name: str,
         content: str,
         is_group: bool,
         mentioned_bot: bool,
@@ -33,6 +34,7 @@ class TurtleAgent:
         history = self.observe(
             conversation_id=conversation_id,
             user_id=user_id,
+            user_name=user_name,
             content=content,
             is_group=is_group,
             mentioned_bot=mentioned_bot,
@@ -57,6 +59,7 @@ class TurtleAgent:
         *,
         conversation_id: str,
         user_id: str,
+        user_name: str,
         content: str,
         is_group: bool,
         mentioned_bot: bool,
@@ -64,6 +67,7 @@ class TurtleAgent:
         history = self._histories.setdefault(conversation_id, [])
         user_content = self._format_user_content(
             user_id=user_id,
+            user_name=user_name,
             content=content,
             is_group=is_group,
             mentioned_bot=mentioned_bot,
@@ -97,7 +101,7 @@ class TurtleAgent:
             "你是 QQ 群聊机器人。"
             f"{personality}"
             "用户已经明确在跟你说话。"
-            "群消息会以「用户ID: 内容」的形式出现。"
+            "群消息会以「昵称(用户ID): 内容」的形式出现。"
             "请用群聊口吻自然、简短地回复，不要输出 JSON。"
         )
 
@@ -105,14 +109,15 @@ class TurtleAgent:
         self,
         *,
         user_id: str,
+        user_name: str,
         content: str,
         is_group: bool,
         mentioned_bot: bool,
     ) -> str:
         if not is_group:
-            return content
+            return f"{user_name}({user_id}): {content}"
         mention_marker = " [@你]" if mentioned_bot else ""
-        return f"{user_id}{mention_marker}: {content}"
+        return f"{user_name}({user_id}){mention_marker}: {content}"
 
     def _trim_history(self, history: list[dict[str, str]]) -> None:
         if self._context_messages <= 0:

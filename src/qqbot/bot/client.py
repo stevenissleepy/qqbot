@@ -17,6 +17,7 @@ _CQ_CODE_RE = re.compile(r"\[CQ:[^\]]+\]")
 class IncomingMessage:
     conversation_id: str
     user_id: str
+    user_name: str
     content: str
     is_group: bool
     mentioned_bot: bool
@@ -79,6 +80,7 @@ class NapCatBot:
             self._agent.observe(
                 conversation_id=message.conversation_id,
                 user_id=message.user_id,
+                user_name=message.user_name,
                 content=message.content,
                 is_group=message.is_group,
                 mentioned_bot=message.mentioned_bot,
@@ -88,6 +90,7 @@ class NapCatBot:
         reply = await self._agent.observe_and_reply(
             conversation_id=message.conversation_id,
             user_id=message.user_id,
+            user_name=message.user_name,
             content=message.content,
             is_group=message.is_group,
             mentioned_bot=message.mentioned_bot,
@@ -122,9 +125,11 @@ class NapCatBot:
 
             group_id = str(event["group_id"])
             user_id = str(event["user_id"])
+            user_name = self._read_sender_name(event, fallback=user_id)
             return IncomingMessage(
                 conversation_id=f"group:{group_id}",
                 user_id=user_id,
+                user_name=user_name,
                 content=content,
                 is_group=True,
                 mentioned_bot=mentioned_bot,
@@ -134,9 +139,11 @@ class NapCatBot:
 
         if message_type == "private":
             user_id = str(event["user_id"])
+            user_name = self._read_sender_name(event, fallback=user_id)
             return IncomingMessage(
                 conversation_id=f"private:{user_id}",
                 user_id=user_id,
+                user_name=user_name,
                 content=self._normalize_message_content(raw_content, self_id).strip(),
                 is_group=False,
                 mentioned_bot=False,
@@ -187,6 +194,17 @@ class NapCatBot:
             qq = str(data.get("qq", ""))
             return f"[CQ:at,qq={qq}]"
         return ""
+
+    def _read_sender_name(self, event: dict[str, Any], *, fallback: str) -> str:
+        sender = event.get("sender")
+        if not isinstance(sender, dict):
+            return fallback
+
+        for key in ("card", "nickname"):
+            value = sender.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return fallback
 
     async def _send_action(
         self,
