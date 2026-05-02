@@ -1,7 +1,9 @@
 import re
 import json
 import asyncio
+import uuid
 import websockets
+from contextlib import suppress
 from typing import Any
 from dataclasses import dataclass
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -38,6 +40,8 @@ class NapCatBot:
         self._agent_name = agent.name
         self._bot_logger = BotLogger()
         self._message_logger = MessageLogger()
+        self._member_name_cache: dict[tuple[str, str], str] = {}
+        self._pending_actions: dict[str, asyncio.Future[dict[str, Any]]] = {}
 
     def run(self) -> None:
         asyncio.run(self._run_forever())
@@ -57,8 +61,39 @@ class NapCatBot:
     async def _connect_once(self) -> None:
         async with websockets.connect(self._ws_url) as websocket:
             self._bot_logger.info("connected to NapCat WebSocket: %s", self._ws_url)
-            async for raw_event in websocket:
-                await self._handle_raw_event(websocket, raw_event)
+            event_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+            receiver = asyncio.create_task(
+                self._receive_events(websocket, event_queue)
+            )
+            try:
+                while True:
+                    event = await event_queue.get()
+                    await self._handle_event(websocket, event)
+            finally:
+                receiver.cancel()
+                with suppress(asyncio.CancelledError):
+                    await receiver
+
+    async def _receive_events(
+        self,
+        websocket: Any,
+        event_queue: asyncio.Queue[dict[str, Any]],
+    ) -> None:
+        async for raw_event in websocket:
+            try:
+                event = json.loads(raw_event)
+            except json.JSONDecodeError:
+                self._bot_logger.warning("received non-json event from NapCat")
+                continue
+
+            echo = event.get("echo")
+            if isinstance(echo, str) and echo in self._pending_actions:
+                future = self._pending_actions.pop(echo)
+                if not future.done():
+                    future.set_result(event)
+                continue
+
+            await event_queue.put(event)
 
     async def _handle_raw_event(self, websocket: Any, raw_event: str | bytes) -> None:
         try:
@@ -67,9 +102,15 @@ class NapCatBot:
             self._bot_logger.warning("received non-json event from NapCat")
             return
 
+        await self._handle_event(websocket, event)
+
+    async def _handle_event(self, websocket: Any, event: dict[str, Any]) -> None:
         message = self._parse_message_event(event)
         if message is None:
             return
+
+        if message.is_group:
+            message = await self._hydrate_group_mentions(websocket, message)
 
         self._log_message_received(
             conversation_id=message.conversation_id,
@@ -170,23 +211,27 @@ class NapCatBot:
         return None
 
     def _read_message_content(self, event: dict[str, Any]) -> str:
-        raw_message = event.get("raw_message")
-        if isinstance(raw_message, str):
-            return raw_message.strip()
-
         message = event.get("message")
+        if isinstance(message, list):
+            return "".join(
+                self._message_segment_to_text(segment) for segment in message
+            ).strip()
+
         if isinstance(message, str):
             return message.strip()
 
-        if isinstance(message, list):
-            return "".join(self._message_segment_to_text(segment) for segment in message).strip()
+        raw_message = event.get("raw_message")
+        if isinstance(raw_message, str):
+            return raw_message.strip()
 
         return ""
 
     def _mentions_bot(self, content: str, self_id: str) -> bool:
         if not self_id:
             return False
-        return any(match.group("qq") == self_id for match in _CQ_AT_RE.finditer(content))
+        return any(
+            match.group("qq") == self_id for match in _CQ_AT_RE.finditer(content)
+        )
 
     def _should_reply(self, message: IncomingMessage) -> bool:
         if not message.is_group:
@@ -267,11 +312,103 @@ class NapCatBot:
 
     def _normalize_message_content(self, content: str, self_id: str) -> str:
         def replace_at(match: re.Match[str]) -> str:
-            if self_id and match.group("qq") == self_id:
+            qq = match.group("qq")
+            if self_id and qq == self_id:
                 return f"@{self._agent_name}"
-            return "@某人"
+            return f"@用户({qq})"
 
         return _CQ_CODE_RE.sub("", _CQ_AT_RE.sub(replace_at, content))
+
+    async def _hydrate_group_mentions(
+        self,
+        websocket: Any,
+        message: IncomingMessage,
+    ) -> IncomingMessage:
+        group_id = str(message.reply_params.get("group_id", ""))
+        if not group_id:
+            return message
+
+        hydrated_content = message.content
+        for match in list(re.finditer(r"@用户\((?P<user_id>\d+)\)", message.content)):
+            user_id = match.group("user_id")
+            user_name = await self._get_group_member_name(
+                websocket,
+                group_id=group_id,
+                user_id=user_id,
+            )
+            if not user_name:
+                continue
+            hydrated_content = hydrated_content.replace(
+                f"@用户({user_id})",
+                f"@{user_name}({user_id})",
+            )
+
+        if hydrated_content == message.content:
+            return message
+        return IncomingMessage(
+            conversation_id=message.conversation_id,
+            user_id=message.user_id,
+            user_name=message.user_name,
+            content=hydrated_content,
+            is_group=message.is_group,
+            mentioned_bot=message.mentioned_bot,
+            reply_action=message.reply_action,
+            reply_params=message.reply_params,
+        )
+
+    async def _get_group_member_name(
+        self,
+        websocket: Any,
+        *,
+        group_id: str,
+        user_id: str,
+    ) -> str | None:
+        cache_key = (group_id, user_id)
+        if cache_key in self._member_name_cache:
+            return self._member_name_cache[cache_key]
+
+        try:
+            response = await self._call_action(
+                websocket,
+                "get_group_member_info",
+                {
+                    "group_id": group_id,
+                    "user_id": user_id,
+                    "no_cache": False,
+                },
+            )
+        except TimeoutError:
+            self._bot_logger.warning(
+                "get_group_member_info timeout: group=%s user=%s",
+                group_id,
+                user_id,
+            )
+            return None
+
+        if response.get("status") != "ok":
+            self._bot_logger.warning(
+                "get_group_member_info failed: group=%s user=%s response=%s",
+                group_id,
+                user_id,
+                response,
+            )
+            return None
+
+        data = response.get("data")
+        if not isinstance(data, dict):
+            return None
+        user_name = self._read_member_name(data)
+        if user_name is None:
+            return None
+        self._member_name_cache[cache_key] = user_name
+        return user_name
+
+    def _read_member_name(self, data: dict[str, Any]) -> str | None:
+        for key in ("card", "nickname"):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
 
     def _message_segment_to_text(self, segment: dict[str, Any]) -> str:
         segment_type = segment.get("type")
@@ -309,6 +446,31 @@ class NapCatBot:
                 ensure_ascii=False,
             )
         )
+
+    async def _call_action(
+        self,
+        websocket: Any,
+        action: str,
+        params: dict[str, Any],
+    ) -> dict[str, Any]:
+        echo = f"{action}:{uuid.uuid4()}"
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        self._pending_actions[echo] = future
+        await websocket.send(
+            json.dumps(
+                {
+                    "action": action,
+                    "params": params,
+                    "echo": echo,
+                },
+                ensure_ascii=False,
+            )
+        )
+        try:
+            return await asyncio.wait_for(future, timeout=5)
+        finally:
+            self._pending_actions.pop(echo, None)
 
     def _log_message_received(
         self, *, conversation_id: str, user_id: str, content: str

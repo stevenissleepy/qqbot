@@ -136,10 +136,11 @@ class TurtleAgent:
         is_group: bool,
         mentioned_bot: bool,
     ) -> str:
+        speaker = f"{user_name}({user_id})"
         if not is_group:
-            return f"{user_name}({user_id}): {content}"
-        mention_marker = " [@你]" if mentioned_bot else ""
-        return f"{user_name}({user_id}){mention_marker}: {content}"
+            return f"[{speaker}] {content}"
+        mention_marker = " @你" if mentioned_bot else ""
+        return f"[{speaker}{mention_marker}] {content}"
 
     def _trim_history(self, history: list[dict[str, str]]) -> None:
         if self._context_messages <= 0:
