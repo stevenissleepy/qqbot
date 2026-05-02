@@ -30,15 +30,13 @@ class TurtleAgent:
         is_group: bool,
         mentioned_bot: bool,
     ) -> str | None:
-        history = self._histories.setdefault(conversation_id, [])
-        user_content = self._format_user_content(
+        history = self.observe(
+            conversation_id=conversation_id,
             user_id=user_id,
             content=content,
             is_group=is_group,
             mentioned_bot=mentioned_bot,
         )
-        history.append({"role": "user", "content": user_content})
-        self._trim_history(history)
 
         response = await self._client.chat.completions.create(
             model=self._model,
@@ -53,6 +51,26 @@ class TurtleAgent:
             history.append({"role": "assistant", "content": reply})
             self._trim_history(history)
         return reply
+
+    def observe(
+        self,
+        *,
+        conversation_id: str,
+        user_id: str,
+        content: str,
+        is_group: bool,
+        mentioned_bot: bool,
+    ) -> list[dict[str, str]]:
+        history = self._histories.setdefault(conversation_id, [])
+        user_content = self._format_user_content(
+            user_id=user_id,
+            content=content,
+            is_group=is_group,
+            mentioned_bot=mentioned_bot,
+        )
+        history.append({"role": "user", "content": user_content})
+        self._trim_history(history)
+        return history
 
     def _build_system_prompt(self, is_group: bool) -> str:
         if not is_group:

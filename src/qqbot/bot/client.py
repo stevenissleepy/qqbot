@@ -76,6 +76,13 @@ class NapCatBot:
             content=message.content,
         )
         if not self._should_reply(message):
+            self._agent.observe(
+                conversation_id=message.conversation_id,
+                user_id=message.user_id,
+                content=message.content,
+                is_group=message.is_group,
+                mentioned_bot=message.mentioned_bot,
+            )
             return
 
         reply = await self._agent.observe_and_reply(
