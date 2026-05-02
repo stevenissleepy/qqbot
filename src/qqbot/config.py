@@ -9,6 +9,7 @@ class Settings:
     napcat_access_token: str | None
     agent_name: str
     default_model: str
+    default_persona: str
     context_messages: int
 
 
@@ -29,5 +30,6 @@ def load_settings() -> Settings:
         napcat_access_token=os.getenv("NAPCAT_ACCESS_TOKEN") or None,
         agent_name=os.getenv("AGENT_NAME", "龟龟"),
         default_model=os.getenv("AGENT_DEFAULT_MODEL", "sjtu"),
+        default_persona=os.getenv("AGENT_DEFAULT_PERSONA", "mean"),
         context_messages=read_int_env("AGENT_CONTEXT_MESSAGES", 20),
     )

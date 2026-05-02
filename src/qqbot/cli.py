@@ -10,6 +10,7 @@ def main() -> None:
     settings = load_settings()
     agent = TurtleAgent(
         default_model=settings.default_model,
+        default_persona=settings.default_persona,
         bot_name=settings.agent_name,
         context_messages=settings.context_messages,
     )
