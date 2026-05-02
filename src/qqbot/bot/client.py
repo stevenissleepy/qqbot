@@ -34,6 +34,7 @@ class NapCatBot:
     ):
         self._ws_url = self._build_ws_url(ws_url, access_token)
         self._agent = agent
+        self._agent_name = agent.name
         self._bot_logger = BotLogger()
         self._message_logger = MessageLogger()
 
@@ -74,6 +75,9 @@ class NapCatBot:
             user_id=message.user_id,
             content=message.content,
         )
+        if not self._should_reply(message):
+            return
+
         reply = await self._agent.observe_and_reply(
             conversation_id=message.conversation_id,
             user_id=message.user_id,
@@ -107,7 +111,7 @@ class NapCatBot:
 
         if message_type == "group":
             mentioned_bot = self._mentions_bot(raw_content, self_id)
-            content = self._strip_cq_codes(raw_content).strip()
+            content = self._normalize_message_content(raw_content, self_id).strip()
 
             group_id = str(event["group_id"])
             user_id = str(event["user_id"])
@@ -126,7 +130,7 @@ class NapCatBot:
             return IncomingMessage(
                 conversation_id=f"private:{user_id}",
                 user_id=user_id,
-                content=self._strip_cq_codes(raw_content).strip(),
+                content=self._normalize_message_content(raw_content, self_id).strip(),
                 is_group=False,
                 mentioned_bot=False,
                 reply_action="send_private_msg",
@@ -145,11 +149,7 @@ class NapCatBot:
             return message.strip()
 
         if isinstance(message, list):
-            return "".join(
-                segment.get("data", {}).get("text", "")
-                for segment in message
-                if segment.get("type") == "text"
-            ).strip()
+            return "".join(self._message_segment_to_text(segment) for segment in message).strip()
 
         return ""
 
@@ -158,8 +158,28 @@ class NapCatBot:
             return False
         return any(match.group("qq") == self_id for match in _CQ_AT_RE.finditer(content))
 
-    def _strip_cq_codes(self, content: str) -> str:
-        return _CQ_CODE_RE.sub("", content)
+    def _should_reply(self, message: IncomingMessage) -> bool:
+        if not message.is_group:
+            return True
+        return message.mentioned_bot or self._agent_name in message.content
+
+    def _normalize_message_content(self, content: str, self_id: str) -> str:
+        def replace_at(match: re.Match[str]) -> str:
+            if self_id and match.group("qq") == self_id:
+                return f"@{self._agent_name}"
+            return "@某人"
+
+        return _CQ_CODE_RE.sub("", _CQ_AT_RE.sub(replace_at, content))
+
+    def _message_segment_to_text(self, segment: dict[str, Any]) -> str:
+        segment_type = segment.get("type")
+        data = segment.get("data", {})
+        if segment_type == "text":
+            return str(data.get("text", ""))
+        if segment_type == "at":
+            qq = str(data.get("qq", ""))
+            return f"[CQ:at,qq={qq}]"
+        return ""
 
     async def _send_action(
         self,

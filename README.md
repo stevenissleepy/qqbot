@@ -41,7 +41,7 @@ MESSAGE_LOG_MAX_LENGTH=500
 OPENAI_BASE_URL=https://models.sjtu.edu.cn/api/v1
 OPENAI_API_KEY=sk-********************************
 OPENAI_MODEL=deepseek-reasoner
-AGENT_NAME=Turtle
+AGENT_NAME=龟龟
 AGENT_CONTEXT_MESSAGES=20
 ```
 

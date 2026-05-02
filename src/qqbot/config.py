@@ -40,6 +40,6 @@ def load_settings() -> Settings:
         openai_base_url=read_required_env("OPENAI_BASE_URL"),
         openai_api_key=read_required_env("OPENAI_API_KEY"),
         openai_model=os.getenv("OPENAI_MODEL", "deepseek-chat"),
-        agent_name=os.getenv("AGENT_NAME", "Turtle"),
+        agent_name=os.getenv("AGENT_NAME", "龟龟"),
         context_messages=read_int_env("AGENT_CONTEXT_MESSAGES", 20),
     )
