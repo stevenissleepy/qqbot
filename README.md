@@ -1,10 +1,8 @@
 # QQBot
 
-一个支持按会话切换 agent 的 QQ 机器人。默认支持：
+一个基于 NapCat / OneBot v11 WebSocket 的 QQ 机器人，使用单一 `TurtleAgent`。
 
-- `builtin`：内置示例 agent，固定回复 `hello`
-- `deepseek`：调用 DeepSeek API 进行单轮聊天
-- `sjtu`：调用 SJTU API 进行单轮聊天
+`TurtleAgent` 使用 OpenAI 兼容接口。群聊中它会持续阅读消息并维护上下文，但只有判断群友正在跟自己说话时才回复；私聊会直接回复。每个群和每个私聊都有独立上下文。
 
 ## 目录结构
 
@@ -13,24 +11,15 @@
 ├── pyproject.toml
 ├── src/
 │   └── qqbot/
-│       ├── cli.py        # 命令行入口
-│       ├── __main__.py   # python -m qqbot 入口
-│       ├── agents/
-│       │   ├── base.py       # Agent 协议和上下文
-│       │   ├── builtin/      # 内置示例 agent
-│       │   ├── deepseek/     # DeepSeek agent
-│       │   ├── sjtu/         # SJTU agent
-│       │   ├── factory.py    # 默认 Agent 注册
-│       │   └── registry.py   # Agent 注册表
+│       ├── cli.py              # 命令行入口
+│       ├── __main__.py         # python -m qqbot 入口
+│       ├── agent/
+│       │   └── turtle_agent.py # TurtleAgent
 │       ├── bot/
-│       │   ├── agent_manager.py # 当前会话 agent 状态
-│       │   └── client.py        # NapCat / OneBot v11 WebSocket 适配
-│       ├── commands/
-│       │   ├── base.py       # Command 协议和上下文
-│       │   ├── agent.py      # /agent 命令
-│       │   ├── registry.py   # Command 注册表
-│       │   └── router.py     # 命令解析和分发
-│       └── config.py         # .env 配置读取
+│       │   └── client.py       # NapCat / OneBot v11 WebSocket 适配
+│       ├── config.py           # .env 配置读取
+│       └── utils/
+│           └── logger.py       # 日志
 └── .env.example
 ```
 
@@ -41,9 +30,7 @@
 ```sh
 NAPCAT_WS_URL=ws://127.0.0.1:3001
 NAPCAT_ACCESS_TOKEN=
-NAPCAT_GROUP_REQUIRE_MENTION=true
 
-# log config
 BOT_LOG_DIR=log
 BOT_LOG_FILE=bot.log
 BOT_LOG_LEVEL=INFO
@@ -51,92 +38,29 @@ MESSAGE_LOG_DIR=log
 MESSAGE_LOG_FILE=message.log
 MESSAGE_LOG_MAX_LENGTH=500
 
-QQ_BOT_AGENT=deepseek
-DEEPSEEK_API_KEY=sk-********************************
-DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_MODEL=deepseek-chat
-
-SJTU_API_KEY=sk-********************************
-SJTU_BASE_URL=https://models.sjtu.edu.cn/api/v1
-SJTU_MODEL=deepseek-chat
+OPENAI_BASE_URL=https://models.sjtu.edu.cn/api/v1
+OPENAI_API_KEY=sk-********************************
+OPENAI_MODEL=deepseek-reasoner
+AGENT_NAME=Turtle
+AGENT_CONTEXT_MESSAGES=20
 ```
 
 `NAPCAT_WS_URL` 是 NapCat 的 OneBot v11 WebSocket 服务地址。
 如果 NapCat 配置了 access token，把同一个值填到 `NAPCAT_ACCESS_TOKEN`。
-`NAPCAT_GROUP_REQUIRE_MENTION=true` 时，群聊只回复 @ 机器人的消息；私聊总是回复。
-`BOT_LOG_DIR`、`BOT_LOG_FILE`、`MESSAGE_LOG_DIR` 和 `MESSAGE_LOG_FILE` 控制日志文件位置，默认写到 `log/bot.log` 和 `log/message.log`。
-`MESSAGE_LOG_MAX_LENGTH` 控制收发消息写入 `message.log` 时的最大长度。
-`QQ_BOT_AGENT` 是启动后的默认 agent，可选值包括 `builtin`、`deepseek` 和 `sjtu`。
-`deepseek` 需要配置 `DEEPSEEK_API_KEY`。`sjtu` 需要配置 `SJTU_API_KEY`，且 SJTU API 仅限校园网或 VPN 访问。对应的 `*_BASE_URL` 和 `*_MODEL` 可以按需调整。
+`OPENAI_BASE_URL`、`OPENAI_API_KEY` 和 `OPENAI_MODEL` 控制 TurtleAgent 使用的 OpenAI 兼容模型。
+`AGENT_NAME` 是 TurtleAgent 在群聊里识别“别人是否在跟自己说话”的名字。
+`AGENT_CONTEXT_MESSAGES` 控制每个群/私聊保留的上下文消息数。
 
 ## 运行
 
 ```sh
+conda activate qqbot
 pip install -e .
 qqbot
 ```
 
-也可以使用模块入口：
+也可以直接使用 conda 环境里的解释器：
 
 ```sh
-python -m qqbot
-```
-
-## QQ 聊天命令
-
-在私聊中直接发送，或在群聊里 @ 机器人：
-
-```text
-/agent list
-/agent deepseek
-/agent sjtu
-```
-
-`/agent list` 会查看当前会话的 agent 与可用列表。
-`/agent <name>` 会切换当前会话的 agent。
-
-当前动态切换保存在内存中，重启后会回到 `.env` 里的 `QQ_BOT_AGENT`。
-
-## 添加新命令
-
-在 `src/qqbot/commands/` 下新增命令：
-
-```python
-from qqbot.commands.base import CommandContext
-
-
-class PingCommand:
-    name = "ping"
-    description = "检查机器人是否在线"
-
-    async def handle(self, args: list[str], context: CommandContext) -> str:
-        return "pong"
-```
-
-然后在 `src/qqbot/cli.py` 里注册：
-
-```python
-command_registry.register(PingCommand())
-```
-
-## 接入新 agent
-
-在 `src/qqbot/agents/` 下新增实现：
-
-```python
-from qqbot.agents.base import AgentContext
-
-
-class MyAgent:
-    name = "my_agent"
-    description = "我的自定义 agent"
-
-    async def reply(self, message: str, context: AgentContext) -> str:
-        return "自定义回复"
-```
-
-然后在 `src/qqbot/agents/factory.py` 的 `build_default_registry()` 里注册：
-
-```python
-registry.register(MyAgent())
+/home/qqbot/tools/miniconda3/envs/qqbot/bin/python -m qqbot
 ```
