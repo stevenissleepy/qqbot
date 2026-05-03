@@ -12,7 +12,7 @@ class CommandHandler:
             (
                 index
                 for index, part in enumerate(parts)
-                if part in {"/help", "/model", "/persona"}
+                if part in {"/help", "/model", "/persona", "/context"}
             ),
             None,
         )
@@ -27,6 +27,8 @@ class CommandHandler:
             return self._handle_model_command(message, args)
         if command == "/persona":
             return self._handle_persona_command(message, args)
+        if command == "/context":
+            return self._handle_context_command(message, args)
         return None
 
     def _handle_help_command(self) -> str:
@@ -37,7 +39,9 @@ class CommandHandler:
             "/model {name} : 切换到 {name}\n\n"
             "[/persona]\n"
             "/persona list :  列出所有可用人格\n"
-            "/persona {name} : 切换到 {name}"
+            "/persona {name} : 切换到 {name}\n\n"
+            "[/context]\n"
+            "/context clear : 清空当前会话上下文"
         )
 
     def _handle_model_command(self, message: IncomingMessage, args: list[str]) -> str:
@@ -77,3 +81,9 @@ class CommandHandler:
         except ValueError as exc:
             return str(exc)
         return f"已切换 persona：{persona_name}"
+
+    def _handle_context_command(self, message: IncomingMessage, args: list[str]) -> str:
+        if len(args) == 1 and args[0] == "clear":
+            self._agent.clear_context(message.conversation_id)
+            return "已清空当前会话上下文"
+        return "用法：/context clear"

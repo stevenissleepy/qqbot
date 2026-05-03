@@ -75,6 +75,7 @@ AGENT_CONTEXT_MESSAGES=20
 /persona mean
 /persona normal
 /persona maoniang
+/context clear
 ```
 
 模型和 persona 选择按群/私聊分别保存，重启后回到 `AGENT_DEFAULT_MODEL` 和 `AGENT_DEFAULT_PERSONA`。新增模型时，在 `src/qqbot/agent/models/` 下加一个模块，实现带 `name` 属性和 `chat()` 方法的 client，并提供 `build_model_client()`。

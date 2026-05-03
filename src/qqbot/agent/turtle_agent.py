@@ -88,6 +88,9 @@ class TurtleAgent:
         self._trim_history(history)
         return history
 
+    def clear_context(self, conversation_id: str) -> None:
+        self._histories.pop(conversation_id, None)
+
     def describe_models(self) -> str:
         current = self._default_model
         names = ", ".join(self._clients)
