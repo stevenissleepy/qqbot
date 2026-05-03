@@ -46,6 +46,9 @@ SJTU_MODEL=deepseek-reasoner
 GROK_BASE_URL=https://api.x.ai/v1
 GROK_API_KEY=xai-********************************
 GROK_MODEL=grok-4-1-fast-non-reasoning
+GPT_BASE_URL=https://api.openai.com/v1
+GPT_API_KEY=sk-********************************
+GPT_MODEL=gpt-4.1-mini
 AGENT_NAME=龟龟
 AGENT_CONTEXT_MESSAGES=20
 ```
@@ -54,7 +57,7 @@ AGENT_CONTEXT_MESSAGES=20
 如果 NapCat 配置了 access token，把同一个值填到 `NAPCAT_ACCESS_TOKEN`。
 `AGENT_DEFAULT_MODEL` 是启动后的默认模型。
 `AGENT_DEFAULT_PERSONA` 是启动后的默认 persona。
-可切换模型会从 `src/qqbot/agent/models/` 自动发现。每个模型 client 自己提供 `name` 并读取自己的环境变量；例如 `models/sjtu.py` 读取 `SJTU_BASE_URL`、`SJTU_API_KEY`、`SJTU_MODEL`，`models/grok.py` 读取 `GROK_BASE_URL`、`GROK_API_KEY`、`GROK_MODEL`。
+可切换模型会从 `src/qqbot/agent/models/` 自动发现。每个模型 client 自己提供 `name` 并读取自己的环境变量；例如 `models/sjtu.py` 读取 `SJTU_BASE_URL`、`SJTU_API_KEY`、`SJTU_MODEL`，`models/grok.py` 读取 `GROK_BASE_URL`、`GROK_API_KEY`、`GROK_MODEL`，`models/gpt.py` 读取 `GPT_BASE_URL`、`GPT_API_KEY`、`GPT_MODEL`。未配置 `GPT_API_KEY` 或 `GPT_MODEL` 时，`gpt` 模型不会注册。
 可切换 persona 会从 `src/qqbot/agent/personas/*.txt` 自动发现，文件名就是 persona 名；当前内置 `mean.txt`、`normal.txt` 和 `maoniang.txt`。
 `AGENT_NAME` 是 TurtleAgent 在群聊里识别“别人是否在跟自己说话”的名字。
 `AGENT_CONTEXT_MESSAGES` 控制每个群/私聊保留的上下文消息数。
@@ -67,6 +70,7 @@ AGENT_CONTEXT_MESSAGES=20
 /help
 /model list
 /model sjtu
+/model gpt
 /persona list
 /persona mean
 /persona normal
