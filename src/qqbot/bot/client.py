@@ -35,13 +35,17 @@ class NapCatBot:
         )
 
     def run(self) -> None:
-        asyncio.run(self._run_forever())
+        try:
+            asyncio.run(self._run_forever())
+        except KeyboardInterrupt:
+            pass
 
     async def _run_forever(self) -> None:
         while True:
             try:
                 await self._connect_once()
             except asyncio.CancelledError:
+                self._bot_logger.info("shutting down NapCat bot")
                 raise
             except Exception:
                 self._bot_logger.exception(
